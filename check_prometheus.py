@@ -39,11 +39,21 @@ class Prometheus(nagiosplugin.Resource):
                 self.args.url, params={'query': self.args.query}, 
                 auth=(self.args.username, self.args.password))
         except requests.exceptions.RequestException as e:
-            raise ValueError("Unable to connect to Prometheus server at: '{}'\n"
-                             "With Exception: {}".format(self.args.url, e))
+            if self.args.httpcritical:
+                print 'CRITICAL: Unable to connect to Prometheus server at {}'.format(self.args.url)
+                sys.exit(int(nagiosplugin.Critical))
+            else:
+                raise ValueError("Unable to connect to Prometheus server at: '{}'\n"
+                                 "With Exception: {}".format(self.args.url, e))
 
         # For status other than 200 OK throw an exception.
-        query_output.raise_for_status()
+        try:
+            query_output.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            if self.args.httpcritical:
+                print 'CRITICAL: Communication error with Prometheus server at {}: {}'.format(self.args.url, e)
+                sys.exit(int(nagiosplugin.Critical))
+            raise requests.exceptions.HTTPError(e)
 
         _log.debug("Got this output from Prometheus:")
         try:
@@ -168,6 +178,9 @@ def main():
     parser.add_argument(
         '-I', '--ignorenan', action='store_true',
         help='Ignore NaN results')
+    parser.add_argument(
+        '-C', '--httpcritical', action='store_true',
+        help='Handle HTTP errors as critical')
     parser.add_argument(
         '-v', '--verbose', action='count', default=0,
         help='Increase output verbosity (use up to 3 times)')
